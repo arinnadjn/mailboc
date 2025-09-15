@@ -1,0 +1,98 @@
+import imaplib
+import os
+import email
+from email.header import decode_header
+
+# Считывание пароля из текстового файла
+with open('pass.txt', 'r') as file:
+    password = file.readline()
+
+# Ввод данных пользователя
+email_address = input("Введите вашу почту: ")
+# Установка соединения с почтовым сервером
+imap_server = "imap." + email_address.partition('@')[2]
+imap_connection = imaplib.IMAP4_SSL(imap_server)
+imap_connection.login(email_address, password)
+# Получение списка писем в папке inbox
+mailbox = 'inbox'
+resp_code, response = imap_connection.select(mailbox)
+if resp_code != 'OK':
+    print(f"Ошибка! Не получается открыть папку входящих писем. {mailbox}")
+    imap_connection.close()
+    imap_connection.logout()
+    exit()
+
+# Получение количества писем в папке
+
+resp_code, emailNums = imap_connection.search(None, 'ALL')
+if resp_code != 'OK':
+    print(f"Ошибка! Не удалось найти письма в {mailbox}")
+else:
+    email_ids = emailNums[0].split()
+    email_counter = len(email_ids)
+    print(f"Присутствуют {email_counter} писем в {mailbox}")
+
+    # Вывод заголовков первых 5 писем
+    email_counter = min(5, len(email_ids))
+    for i, email_num in enumerate(email_ids[-6:-1], start=1):
+        resp_code, email_data = imap_connection.fetch(email_num, '(RFC822)')
+        resp_code, email_bytes = email_data[0]
+        email_content = email.message_from_bytes(email_bytes)
+        email_subject = decode_header(email_content["Subject"])[0][0]
+        if isinstance(email_subject, bytes):
+            email_subject = email_subject.decode('utf-8')
+
+        email_sender = decode_header(email_content["From"])[0][0]
+        if isinstance(email_sender, bytes):
+            email_sender = email_sender.decode('utf-8')
+
+        print(f"Письмо {i}. От: {email_sender}; Тема: {email_subject}")
+
+group_email = input("Введите адрес пользователя: ")
+# Поиск и получение письма от пользователя
+resp_code, emailNums = imap_connection.search(None, f'FROM "{group_email}"')
+if resp_code == 'OK':
+    if emailNums[0]:
+        email_id = emailNums[0].split()[-1]
+        resp_code, email_data = imap_connection.fetch(email_id, '(RFC822)')
+        if resp_code == 'OK':
+            raw_email = email_data[0][1]
+            msg = email.message_from_bytes(raw_email)
+            email_sender = decode_header(email_content["From"])[0][0]
+            if isinstance(email_sender, bytes):
+                email_sender = email_sender.decode('utf-8')
+            subject = decode_header(msg["Subject"])[0][0]
+            if isinstance(subject, bytes):
+                subject = subject.decode('utf-8')
+            print(f"Получено письмо от пользователя с заголовком: {subject}")
+            # Вывод содержимого письма
+            for part in msg.walk():
+                if part.get_content_type() == 'multipart':
+                    continue
+                elif part.get_content_type() == "text/plain":
+                        print(part.get_payload(decode=True).decode())
+                if part.get('Content-Disposition') is None:
+                    continue
+
+                filename = part.get_filename()
+                if filename:
+                    folder_name = 'pythonProject2'
+                    if not os.path.isdir(folder_name):
+                        os.mkdir(folder_name)
+                    filepath = os.path.join(folder_name, filename)
+                    with open(filepath, 'wb') as fp:
+                        fp.write(part.get_payload(decode=True))
+                    print(f"Сохранен файл: {filename} в папке {folder_name}")
+
+                elif part.get_content_type() == "text/plain":
+                    print(part.get_payload(decode=True).decode())
+        else:
+            print("Ошибка при получении письма от пользователя")
+    else:
+        print("Письмо от пользователя не найдено")
+else:
+    print("Ошибка при поиске писем от пользователя")
+
+imap_connection.close()
+imap_connection.logout()
+
