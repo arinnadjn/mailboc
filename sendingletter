@@ -1,0 +1,85 @@
+import mimetypes
+import pathlib
+import ssl
+import datetime
+import base64
+import smtplib # Импортируем библиотеку по работе с SMTP
+from email.mime.base import MIMEBase
+
+import email.mime.audio
+import os
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart  # Многокомпонентный объект
+from email import encoders
+from email.mime.text import MIMEText
+
+
+
+# Чтение пароля из файла
+with open("pass.txt", "r") as password_file:
+    password = password_file.readline()
+
+# Функция для кодирования файла в base64
+def encode_file_to_base64(file_path):
+    with open(file_path, 'rb') as file:
+        encoded_file = base64.b64encode(file.read()).decode('utf-8')
+    return encoded_file
+
+# Запрос данных у пользователя
+from_email = input("Введите ваш почтовый адрес: ")
+to_email = input("Введите почтовый адрес получателя: ")
+from_data = input("Введите ваши ФИО и номер группы: ")
+to_data = input("Введите ФИО и номер группы получателя: ")
+subject = input("Введите тему письма: ")
+letter_text = input("Введите текст письма: ")
+file_answer = input("Хотите ли вы прикрепить к письму файл? (да/нет): ").lower()
+
+# Определение нужно ли прикреплять файл
+file_flag = file_answer == 'да'
+
+# Формирование smtp-домена из email-адреса отправителя
+smtp_domain = 'smtp.' + from_email.partition('@')[2]
+
+# Формирование тела письма
+body = f"""{letter_text}
+{from_data} → {to_data}.
+Время отправки: {datetime.datetime.now()}"""
+
+# Создание объекта EmailMessage и заполнение его данными
+message = MIMEMultipart()
+message['From'] = from_email
+message['To'] = to_email
+message['Subject'] = subject
+message['X-Priority'] = '1'
+message.attach(MIMEText(body, 'plain'))
+
+# Прикрепление файла, если пользователь выбрал эту опцию
+if file_flag:
+    file_name = input('Введите имя файла для прикрепления: ').lower()
+    file_path = os.fspath(pathlib.Path(__file__).parent / file_name)
+    ctype, encoding = mimetypes.guess_type(file_path)  # Определяем тип файла на основе его расширения
+    maintype, subtype = ctype.split('/', 1)
+    if maintype == 'text':  # Если текстовый файл
+        attachment = open(file_name, 'rb')
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(attachment.read())
+        encoders.encode_base64(part)
+    elif maintype == 'image':  # Если изображение
+        # Открываем изображение и читаем его в бинарном режиме
+        with open(file_name, "rb") as image_file:
+            image_data = image_file.read()
+        # Создаем объект MIMEImage и устанавливаем данные изображения
+        part = MIMEImage(image_data)
+    elif maintype == 'audio':  # Если аудиофайл
+        attachment = open(file_name, 'rb')
+        part = email.mime.audio.MIMEAudio(attachment.read(), _subtype=subtype)
+
+    part.add_header('Content-Disposition', "attachment; filename= %s" % file_name)
+
+    message.attach(part)
+# Установка безопасного соединения с SMTP-сервером и отправка письма
+context = ssl.create_default_context()
+with smtplib.SMTP_SSL(smtp_domain, 465, context=context) as smtpServer:
+    smtpServer.login(from_email, password)
+    smtpServer.send_message(message)
+    print(f"[{datetime.datetime.now()}] Письмо отправлено по адресу {to_email}")
